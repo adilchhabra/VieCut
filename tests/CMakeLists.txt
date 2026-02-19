@@ -8,7 +8,10 @@ if (${PARALLEL} STREQUAL "TRUE")
 endif()
 
 add_executable(${COMPLETENAME} ${TESTNAME}.cpp)
-target_link_libraries(${COMPLETENAME} ${TESTLIBS} ${Tcmalloc_LIBRARIES})
+target_link_libraries(${COMPLETENAME} ${TESTLIBS})
+if (USE_TCMALLOC)
+    target_link_libraries(${COMPLETENAME} ${Tcmalloc_LIBRARIES})
+endif()
 if (${PARALLEL} STREQUAL "TRUE")
     target_compile_definitions(${COMPLETENAME} PUBLIC -DPARALLEL)
 endif()
@@ -45,4 +48,3 @@ build_and_test(cactus_cut_test FALSE)
 build_and_test(cactus_cut_test TRUE)
 
 target_link_libraries(multiterminal_cut_test -lpthread ${MPI_LIBRARIES})
-

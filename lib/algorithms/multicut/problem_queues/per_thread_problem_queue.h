@@ -16,6 +16,7 @@
 #include <memory>
 #include <mutex>
 #include <numeric>
+#include <optional>
 #include <queue>
 #include <string>
 #include <utility>
@@ -26,6 +27,9 @@
 
 class per_thread_problem_queue {
  public:
+    using ProblemComparator =
+        std::function<bool(const problemPointer&, const problemPointer&)>;
+
     per_thread_problem_queue(size_t threads, std::string pq_type)
         : num_threads(threads),
           haveSendProblem(false),
@@ -36,46 +40,46 @@ class per_thread_problem_queue {
             sizes[i].second = false;
 
             if (pq_type == "small_graph") {
-                pq.emplace_back(small_graph);
+                pq.emplace_back(ProblemComparator(small_graph));
                 continue;
             }
 
             if (pq_type == "bound_sum") {
-                pq.emplace_back(bound_sum);
+                pq.emplace_back(ProblemComparator(bound_sum));
                 continue;
             }
 
             if (pq_type == "few_terminals") {
-                pq.emplace_back(few_terminals);
+                pq.emplace_back(ProblemComparator(few_terminals));
                 continue;
             }
 
             if (pq_type == "upper_bound") {
-                pq.emplace_back(upper_bound);
+                pq.emplace_back(ProblemComparator(upper_bound));
                 continue;
             }
 
             if (pq_type == "lower_bound") {
-                pq.emplace_back(lower_bound);
+                pq.emplace_back(ProblemComparator(lower_bound));
                 continue;
             }
 
             if (pq_type == "bigger_distance") {
-                pq.emplace_back(bigger_distance);
+                pq.emplace_back(ProblemComparator(bigger_distance));
                 continue;
             }
 
             if (pq_type == "lower_distance") {
-                pq.emplace_back(lower_distance);
+                pq.emplace_back(ProblemComparator(lower_distance));
                 continue;
             }
 
             if (pq_type == "most_deleted") {
-                pq.emplace_back(most_deleted);
+                pq.emplace_back(ProblemComparator(most_deleted));
                 continue;
             }
 
-            pq.emplace_back(lower_bound);
+            pq.emplace_back(ProblemComparator(lower_bound));
         }
     }
     ~per_thread_problem_queue() { }
@@ -282,9 +286,7 @@ class per_thread_problem_queue {
 
     std::vector<std::priority_queue<problemPointer,
                                     std::vector<problemPointer>,
-                                    std::function<
-                                        bool(const problemPointer&,
-                                             const problemPointer&)> > > pq;
+                                    ProblemComparator> > pq;
 
     problemPointer sendProblem;
     bool haveSendProblem;

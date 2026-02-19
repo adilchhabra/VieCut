@@ -7,7 +7,9 @@
 
 # Adapted from https://github.com/COMBINE-lab/quark/blob/master/cmake/Modules/FindTcmalloc.cmake
 
-find_path(Tcmalloc_INCLUDE_DIR google/tcmalloc.h NO_DEFAULT_PATH PATHS
+find_path(Tcmalloc_INCLUDE_DIR
+  NAMES google/tcmalloc.h gperftools/tcmalloc.h
+  NO_DEFAULT_PATH PATHS
   $ENV{HOME}/.local/include
   /usr/include
   /opt/local/include
@@ -48,4 +50,3 @@ mark_as_advanced(
   Tcmalloc_LIBRARY
   Tcmalloc_INCLUDE_DIR
   )
-

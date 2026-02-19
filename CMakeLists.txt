@@ -83,8 +83,11 @@ include_directories(
     extlib/growt
     extlib/tlx
     ${GUROBI_INCLUDE_DIR}
-    ${Tcmalloc_INCLUDE_DIR}
 )
+
+if(USE_TCMALLOC)
+    include_directories(${Tcmalloc_INCLUDE_DIR})
+endif()
 
 set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -g ${OpenMP_CXX_FLAGS}")
 set (CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -lpthread")
@@ -102,8 +105,10 @@ set(EXTLIBS tlx)
 
 if(USE_PROFILER)
 set(LIBS ${EXTLIBS} ${Profiler_LIBRARIES} ${GUROBI_LIBRARIES})
-else()
+elseif(USE_TCMALLOC)
 set(LIBS ${EXTLIBS} ${Tcmalloc_LIBRARIES} ${GUROBI_LIBRARIES})
+else()
+set(LIBS ${EXTLIBS} ${GUROBI_LIBRARIES})
 endif()
 
 build_and_link(balanced_small_cut)

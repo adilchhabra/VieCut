@@ -12,6 +12,7 @@
 
 #include <algorithm>
 #include <memory>
+#include <optional>
 #include <queue>
 #include <stack>
 #include <utility>
