@@ -16,6 +16,7 @@ Options:
   --threads <list>       Comma-separated thread counts for parallel mode (default: 1)
   --seeds <list>         Comma-separated seeds (default: 0)
   --config-set <name>    baseline | loo | full (default: loo)
+  --jobs <n>             Number of runs to execute in parallel via GNU parallel (default: 1)
   --dry-run              Print commands only, do not execute
   --help                 Show this help
 
@@ -87,6 +88,138 @@ build_configs() {
   esac
 }
 
+run_one() {
+  local binary_dir="$1"
+  local graph_class="$2"
+  local graph_path="$3"
+  local seed="$4"
+  local run_mode="$5"
+  local threads="$6"
+  local cfg_name="$7"
+  local dlp="$8"
+  local dtr="$9"
+  local d1="${10}"
+  local d2="${11}"
+  local d3="${12}"
+  local d4="${13}"
+
+  local seq_bin="$binary_dir/mincut"
+  local par_bin="$binary_dir/mincut_parallel"
+  local graph_name
+  graph_name="$(basename "$graph_path")"
+
+  local -a cmd
+  if [[ "$run_mode" == "seq" ]]; then
+    cmd=("$seq_bin" "-v" "-r" "$seed")
+  else
+    cmd=("$par_bin" "-v" "-r" "$seed" "-p" "$threads")
+  fi
+
+  [[ "$dlp" == "1" ]] && cmd+=("-E")
+  [[ "$dtr" == "1" ]] && cmd+=("-F")
+  [[ "$d1" == "1" ]] && cmd+=("-A")
+  [[ "$d2" == "1" ]] && cmd+=("-B")
+  [[ "$d3" == "1" ]] && cmd+=("-C")
+  [[ "$d4" == "1" ]] && cmd+=("-D")
+
+  if [[ "$run_mode" == "seq" ]]; then
+    cmd+=("$graph_path" "vc")
+  else
+    cmd+=("$graph_path" "inexact")
+  fi
+
+  local cmd_str="${cmd[*]}"
+  local tmp_log
+  tmp_log="$(mktemp)"
+
+  local exit_code=0
+  if ! "${cmd[@]}" >"$tmp_log" 2>&1; then
+    exit_code=$?
+  fi
+
+  local parsed
+  parsed="$(awk '
+    function parsekv(start,   i,a) {
+      delete kv
+      for (i = start; i <= NF; ++i) {
+        split($i, a, "=")
+        kv[a[1]] = a[2]
+      }
+    }
+    /^STEP / {
+      parsekv(2)
+      s = kv["step"]
+      t[s]  = kv["time"]
+      nb[s] = kv["n_before"]
+      mb[s] = kv["m_before"]
+      na[s] = kv["n_after"]
+      ma[s] = kv["m_after"]
+      cb[s] = kv["cut_before"]
+      ca[s] = kv["cut_after"]
+      next
+    }
+    /^RESULT / {
+      parsekv(2)
+      rtime = kv["time"]
+      rcut  = kv["cut"]
+      rn    = kv["n"]
+      rm    = kv["m"]
+      next
+    }
+    END {
+      steps = "lp trivial pr12 pr34 noi_finalize"
+      printf "%s|%s|%s|%s", rtime, rcut, rn, rm
+      n = split(steps, arr, " ")
+      for (i = 1; i <= n; ++i) {
+        s = arr[i]
+        printf "|%s|%s|%s|%s|%s|%s|%s", t[s], nb[s], mb[s], na[s], ma[s], cb[s], ca[s]
+      }
+      printf "\n"
+    }
+  ' "$tmp_log")"
+
+  IFS='|' read -r \
+    total_time final_cut result_n result_m \
+    lp_time lp_nb lp_mb lp_na lp_ma lp_cb lp_ca \
+    tr_time tr_nb tr_mb tr_na tr_ma tr_cb tr_ca \
+    pr12_time pr12_nb pr12_mb pr12_na pr12_ma pr12_cb pr12_ca \
+    pr34_time pr34_nb pr34_mb pr34_na pr34_ma pr34_cb pr34_ca \
+    noi_time noi_nb noi_mb noi_na noi_ma noi_cb noi_ca \
+    <<< "$parsed"
+
+  rm -f "$tmp_log"
+
+  local timestamp
+  timestamp="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+  local -a row
+  row=(
+    "$timestamp" "$graph_class" "$graph_path" "$graph_name"
+    "$run_mode" "$threads" "$seed" "$cfg_name"
+    "$dlp" "$dtr" "$d1" "$d2" "$d3" "$d4"
+    "$exit_code" "$cmd_str"
+    "$total_time" "$final_cut" "$result_n" "$result_m"
+    "$lp_time" "$lp_nb" "$lp_mb" "$lp_na" "$lp_ma" "$lp_cb" "$lp_ca"
+    "$tr_time" "$tr_nb" "$tr_mb" "$tr_na" "$tr_ma" "$tr_cb" "$tr_ca"
+    "$pr12_time" "$pr12_nb" "$pr12_mb" "$pr12_na" "$pr12_ma" "$pr12_cb" "$pr12_ca"
+    "$pr34_time" "$pr34_nb" "$pr34_mb" "$pr34_na" "$pr34_ma" "$pr34_cb" "$pr34_ca"
+    "$noi_time" "$noi_nb" "$noi_mb" "$noi_na" "$noi_ma" "$noi_cb" "$noi_ca"
+  )
+
+  local i
+  for i in "${!row[@]}"; do
+    row[$i]="$(csv_escape "${row[$i]}")"
+  done
+
+  join_by_comma "${row[@]}"
+}
+
+if [[ "${1:-}" == "--worker" ]]; then
+  shift
+  run_one "$@"
+  exit 0
+fi
+
 INPUT=""
 OUTPUT=""
 BINARY_DIR="$(pwd)/build"
@@ -94,6 +227,7 @@ MODE="both"
 THREADS_CSV="1"
 SEEDS_CSV="0"
 CONFIG_SET="loo"
+JOBS=1
 DRY_RUN=0
 
 while [[ $# -gt 0 ]]; do
@@ -112,6 +246,8 @@ while [[ $# -gt 0 ]]; do
       SEEDS_CSV="$2"; shift 2 ;;
     --config-set)
       CONFIG_SET="$2"; shift 2 ;;
+    --jobs)
+      JOBS="$2"; shift 2 ;;
     --dry-run)
       DRY_RUN=1; shift ;;
     --help)
@@ -138,6 +274,11 @@ if [[ "$MODE" != "seq" && "$MODE" != "par" && "$MODE" != "both" ]]; then
   exit 1
 fi
 
+if ! [[ "$JOBS" =~ ^[1-9][0-9]*$ ]]; then
+  echo "Invalid --jobs: $JOBS" >&2
+  exit 1
+fi
+
 SEQ_BIN="$BINARY_DIR/mincut"
 PAR_BIN="$BINARY_DIR/mincut_parallel"
 
@@ -146,6 +287,13 @@ if [[ "$MODE" == "seq" || "$MODE" == "both" ]]; then
 fi
 if [[ "$MODE" == "par" || "$MODE" == "both" ]]; then
   [[ -x "$PAR_BIN" ]] || { echo "Missing binary: $PAR_BIN" >&2; exit 1; }
+fi
+
+if (( JOBS > 1 )); then
+  command -v parallel >/dev/null 2>&1 || {
+    echo "GNU parallel not found in PATH; install it or use --jobs 1" >&2
+    exit 1
+  }
 fi
 
 mkdir -p "$(dirname "$OUTPUT")"
@@ -172,164 +320,101 @@ header=(
   noi_finalize_time noi_finalize_n_before noi_finalize_m_before noi_finalize_n_after noi_finalize_m_after noi_finalize_cut_before noi_finalize_cut_after
 )
 
-{
-  join_by_comma "${header[@]}"
+tasks_file="$(mktemp)"
+trap 'rm -f "$tasks_file"' EXIT
 
-  while IFS= read -r raw || [[ -n "$raw" ]]; do
-    line="$(trim "$raw")"
-    [[ -z "$line" ]] && continue
-    [[ "${line:0:1}" == "#" ]] && continue
+while IFS= read -r raw || [[ -n "$raw" ]]; do
+  line="$(trim "$raw")"
+  [[ -z "$line" ]] && continue
+  [[ "${line:0:1}" == "#" ]] && continue
 
-    IFS=',' read -r graph_class graph_path_rest <<< "$line"
-    graph_class="$(trim "$graph_class")"
-    graph_path="$(trim "$graph_path_rest")"
+  IFS=',' read -r graph_class graph_path_rest <<< "$line"
+  graph_class="$(trim "$graph_class")"
+  graph_path="$(trim "$graph_path_rest")"
 
-    if [[ "$graph_class" == "class" && "$graph_path" == "path" ]]; then
-      continue
-    fi
-    if [[ -z "$graph_class" || -z "$graph_path" ]]; then
-      echo "Skipping malformed line: $line" >&2
-      continue
-    fi
-    if [[ ! -f "$graph_path" ]]; then
-      echo "Skipping missing graph: $graph_path" >&2
-      continue
-    fi
+  if [[ "$graph_class" == "class" && "$graph_path" == "path" ]]; then
+    continue
+  fi
+  if [[ -z "$graph_class" || -z "$graph_path" ]]; then
+    echo "Skipping malformed line: $line" >&2
+    continue
+  fi
+  if [[ ! -f "$graph_path" ]]; then
+    echo "Skipping missing graph: $graph_path" >&2
+    continue
+  fi
 
-    graph_name="$(basename "$graph_path")"
+  for seed in "${SEEDS[@]}"; do
+    seed="$(trim "$seed")"
+    [[ -z "$seed" ]] && continue
 
-    for seed in "${SEEDS[@]}"; do
-      seed="$(trim "$seed")"
-      [[ -z "$seed" ]] && continue
+    for cfg in "${CONFIGS[@]}"; do
+      IFS=':' read -r cfg_name dlp dtr d1 d2 d3 d4 <<< "$cfg"
 
-      for cfg in "${CONFIGS[@]}"; do
-        IFS=':' read -r cfg_name dlp dtr d1 d2 d3 d4 <<< "$cfg"
+      modes=()
+      case "$MODE" in
+        seq) modes=("seq") ;;
+        par) modes=("par") ;;
+        both) modes=("seq" "par") ;;
+      esac
 
-        modes=()
-        case "$MODE" in
-          seq) modes=("seq") ;;
-          par) modes=("par") ;;
-          both) modes=("seq" "par") ;;
-        esac
+      for run_mode in "${modes[@]}"; do
+        thread_values=("1")
+        if [[ "$run_mode" == "par" ]]; then
+          thread_values=("${THREADS[@]}")
+        fi
 
-        for run_mode in "${modes[@]}"; do
-          thread_values=("1")
-          if [[ "$run_mode" == "par" ]]; then
-            thread_values=("${THREADS[@]}")
-          fi
+        for threads in "${thread_values[@]}"; do
+          threads="$(trim "$threads")"
+          [[ -z "$threads" ]] && continue
 
-          for threads in "${thread_values[@]}"; do
-            threads="$(trim "$threads")"
-            [[ -z "$threads" ]] && continue
-
+          if [[ "$DRY_RUN" == "1" ]]; then
             cmd=()
             if [[ "$run_mode" == "seq" ]]; then
               cmd=("$SEQ_BIN" "-v" "-r" "$seed")
             else
               cmd=("$PAR_BIN" "-v" "-r" "$seed" "-p" "$threads")
             fi
-
             [[ "$dlp" == "1" ]] && cmd+=("-E")
             [[ "$dtr" == "1" ]] && cmd+=("-F")
             [[ "$d1" == "1" ]] && cmd+=("-A")
             [[ "$d2" == "1" ]] && cmd+=("-B")
             [[ "$d3" == "1" ]] && cmd+=("-C")
             [[ "$d4" == "1" ]] && cmd+=("-D")
-
             if [[ "$run_mode" == "seq" ]]; then
               cmd+=("$graph_path" "vc")
             else
               cmd+=("$graph_path" "inexact")
             fi
-
-            cmd_str="${cmd[*]}"
-
-            if [[ "$DRY_RUN" == "1" ]]; then
-              echo "DRY-RUN: $cmd_str" >&2
-              continue
-            fi
-
-            tmp_log="$(mktemp)"
-            exit_code=0
-            if ! "${cmd[@]}" >"$tmp_log" 2>&1; then
-              exit_code=$?
-            fi
-
-            parsed="$(awk '
-              function parsekv(start,   i,a) {
-                delete kv
-                for (i = start; i <= NF; ++i) {
-                  split($i, a, "=")
-                  kv[a[1]] = a[2]
-                }
-              }
-              /^STEP / {
-                parsekv(2)
-                s = kv["step"]
-                t[s]  = kv["time"]
-                nb[s] = kv["n_before"]
-                mb[s] = kv["m_before"]
-                na[s] = kv["n_after"]
-                ma[s] = kv["m_after"]
-                cb[s] = kv["cut_before"]
-                ca[s] = kv["cut_after"]
-                next
-              }
-              /^RESULT / {
-                parsekv(2)
-                rtime = kv["time"]
-                rcut  = kv["cut"]
-                rn    = kv["n"]
-                rm    = kv["m"]
-                next
-              }
-              END {
-                steps = "lp trivial pr12 pr34 noi_finalize"
-                printf "%s|%s|%s|%s", rtime, rcut, rn, rm
-                n = split(steps, arr, " ")
-                for (i = 1; i <= n; ++i) {
-                  s = arr[i]
-                  printf "|%s|%s|%s|%s|%s|%s|%s", t[s], nb[s], mb[s], na[s], ma[s], cb[s], ca[s]
-                }
-                printf "\n"
-              }
-            ' "$tmp_log")"
-
-            IFS='|' read -r \
-              total_time final_cut result_n result_m \
-              lp_time lp_nb lp_mb lp_na lp_ma lp_cb lp_ca \
-              tr_time tr_nb tr_mb tr_na tr_ma tr_cb tr_ca \
-              pr12_time pr12_nb pr12_mb pr12_na pr12_ma pr12_cb pr12_ca \
-              pr34_time pr34_nb pr34_mb pr34_na pr34_ma pr34_cb pr34_ca \
-              noi_time noi_nb noi_mb noi_na noi_ma noi_cb noi_ca \
-              <<< "$parsed"
-
-            timestamp="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-
-            row=(
-              "$timestamp" "$graph_class" "$graph_path" "$graph_name"
-              "$run_mode" "$threads" "$seed" "$cfg_name"
-              "$dlp" "$dtr" "$d1" "$d2" "$d3" "$d4"
-              "$exit_code" "$cmd_str"
-              "$total_time" "$final_cut" "$result_n" "$result_m"
-              "$lp_time" "$lp_nb" "$lp_mb" "$lp_na" "$lp_ma" "$lp_cb" "$lp_ca"
-              "$tr_time" "$tr_nb" "$tr_mb" "$tr_na" "$tr_ma" "$tr_cb" "$tr_ca"
-              "$pr12_time" "$pr12_nb" "$pr12_mb" "$pr12_na" "$pr12_ma" "$pr12_cb" "$pr12_ca"
-              "$pr34_time" "$pr34_nb" "$pr34_mb" "$pr34_na" "$pr34_ma" "$pr34_cb" "$pr34_ca"
-              "$noi_time" "$noi_nb" "$noi_mb" "$noi_na" "$noi_ma" "$noi_cb" "$noi_ca"
-            )
-
-            for i in "${!row[@]}"; do
-              row[$i]="$(csv_escape "${row[$i]}")"
-            done
-
-            join_by_comma "${row[@]}"
-            rm -f "$tmp_log"
-          done
+            echo "DRY-RUN: ${cmd[*]}" >&2
+          else
+            printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+              "$graph_class" "$graph_path" "$seed" "$run_mode" "$threads" "$cfg_name" \
+              "$dlp" "$dtr" "$d1" "$d2" "$d3" "$d4" "$BINARY_DIR" >> "$tasks_file"
+          fi
         done
       done
     done
-  done < "$INPUT"
+  done
+done < "$INPUT"
+
+if [[ "$DRY_RUN" == "1" ]]; then
+  join_by_comma "${header[@]}" > "$OUTPUT"
+  echo "Wrote ablation results to: $OUTPUT"
+  exit 0
+fi
+
+{
+  join_by_comma "${header[@]}"
+  if (( JOBS == 1 )); then
+    while IFS=$'\t' read -r graph_class graph_path seed run_mode threads cfg_name dlp dtr d1 d2 d3 d4 binary_dir; do
+      "$0" --worker "$binary_dir" "$graph_class" "$graph_path" "$seed" "$run_mode" "$threads" "$cfg_name" "$dlp" "$dtr" "$d1" "$d2" "$d3" "$d4"
+    done < "$tasks_file"
+  else
+    parallel --jobs "$JOBS" --colsep '\t' --keep-order \
+      "$0" --worker '{13}' '{1}' '{2}' '{3}' '{4}' '{5}' '{6}' '{7}' '{8}' '{9}' '{10}' '{11}' '{12}' \
+      :::: "$tasks_file"
+  fi
 } > "$OUTPUT"
 
 echo "Wrote ablation results to: $OUTPUT"
