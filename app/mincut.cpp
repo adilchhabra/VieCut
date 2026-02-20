@@ -43,6 +43,12 @@ int main(int argn, char** argv) {
     size_t num_iterations = 1;
 
     auto cfg = configuration::getConfig();
+    bool disable_pr1 = false;
+    bool disable_pr2 = false;
+    bool disable_pr3 = false;
+    bool disable_pr4 = false;
+    bool disable_lp = false;
+    bool disable_trivial = false;
 
     cmdl.add_param_string("graph", cfg->graph_filename, "path to graph file");
 #ifdef PARALLEL
@@ -72,6 +78,18 @@ int main(int argn, char** argv) {
     cmdl.add_size_t('r', "seed", cfg->seed, "random seed");
     cmdl.add_string('t', "cactus_filename", cfg->cactus_filename,
                     "name of GraphML file for the cactus graph");
+    cmdl.add_flag('A', "disable_pr1", disable_pr1,
+                  "disable Padberg-Rinaldi reduction rule 1");
+    cmdl.add_flag('B', "disable_pr2", disable_pr2,
+                  "disable Padberg-Rinaldi reduction rule 2");
+    cmdl.add_flag('C', "disable_pr3", disable_pr3,
+                  "disable Padberg-Rinaldi reduction rule 3");
+    cmdl.add_flag('D', "disable_pr4", disable_pr4,
+                  "disable Padberg-Rinaldi reduction rule 4");
+    cmdl.add_flag('E', "disable_lp", disable_lp,
+                  "disable label propagation contraction");
+    cmdl.add_flag('F', "disable_trivial", disable_trivial,
+                  "disable trivial-cut local search");
 
     if (!cmdl.process(argn, argv))
         return -1;
@@ -80,6 +98,13 @@ int main(int argn, char** argv) {
         // same check, just different optimization function, rest of code reused
         cfg->find_most_balanced_cut = true;
     }
+
+    cfg->enable_pr1 = !disable_pr1;
+    cfg->enable_pr2 = !disable_pr2;
+    cfg->enable_pr3 = !disable_pr3;
+    cfg->enable_pr4 = !disable_pr4;
+    cfg->enable_label_propagation = !disable_lp;
+    cfg->enable_trivial_cut_search = !disable_trivial;
 
     if (cfg->cactus_filename != "" ) {
         // need save_cut to properly maintain containedVertices, see https://github.com/VieCut/VieCut/issues/7

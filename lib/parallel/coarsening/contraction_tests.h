@@ -17,6 +17,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/configuration.h"
 #include "common/definitions.h"
 #include "data_structure/graph_access.h"
 #include "tlx/logger.hpp"
@@ -62,9 +63,57 @@ class tests {
                                 bool find_all_cuts = false) {
         union_find uf(G->number_of_nodes());
         G->computeDegrees();
+        auto cfg = configuration::getConfig();
+        const bool use_pr1 = cfg->enable_pr1;
+        const bool use_pr2 = cfg->enable_pr2;
 
         // workaround for std::vector<bool> not being usable in parallel
         std::vector<uint8_t> contracted(G->number_of_nodes(), false);
+
+        if (use_pr1 && use_pr2) {
+            NodeID end = G->number_of_nodes();
+#pragma omp parallel for schedule(dynamic, 100)
+            for (NodeID n = 0; n < end; ++n) {
+                NodeWeight n_wgt = G->getWeightedNodeDegree(n);
+
+                for (EdgeID e : G->edges_of(n)) {
+                    auto [tgt, wgt] = G->getEdge(n, e);
+                    NodeWeight tgt_wgt = G->getWeightedNodeDegree(tgt);
+                    if (wgt >= weight_limit) {
+                        contracted[n] = true;
+                        contracted[tgt] = true;
+                        uf.Union(n, tgt);
+                    }
+
+                    // if we want to find all cuts
+                    // we are not allowed to contract an edge
+                    // when an incident vertex has degree mincut
+                    // (as the singleton cut might be important)
+                    if (!find_all_cuts ||
+                        (n_wgt >= weight_limit && tgt_wgt >= weight_limit)) {
+                        // node degrees change when we contract edges.
+                        // thus, we only use PR 2 or 3
+                        // when the incident vertices haven't been contracted yet
+                        // keeping a data structure with current degrees
+                        // would be too expensive in parallel
+                        if ((2 * wgt) > n_wgt) {
+                            if (__sync_bool_compare_and_swap(&contracted[n],
+                                                             false, true)) {
+                                contracted[tgt] = true;
+                                uf.Union(n, tgt);
+                            }
+                        } else if ((2 * wgt) > tgt_wgt) {
+                            if (__sync_bool_compare_and_swap(&contracted[tgt],
+                                                             false, true)) {
+                                contracted[n] = true;
+                                uf.Union(n, tgt);
+                            }
+                        }
+                    }
+                }
+            }
+            return uf;
+        }
 
         NodeID end = G->number_of_nodes();
 #pragma omp parallel for schedule(dynamic, 100)
@@ -74,7 +123,7 @@ class tests {
             for (EdgeID e : G->edges_of(n)) {
                 auto [tgt, wgt] = G->getEdge(n, e);
                 NodeWeight tgt_wgt = G->getWeightedNodeDegree(tgt);
-                if (wgt >= weight_limit) {
+                if (use_pr1 && wgt >= weight_limit) {
                     contracted[n] = true;
                     contracted[tgt] = true;
                     uf.Union(n, tgt);
@@ -84,8 +133,8 @@ class tests {
                 // we are not allowed to contract an edge
                 // when an incident vertex has degree mincut
                 // (as the singleton cut might be important)
-                if (!find_all_cuts ||
-                    (n_wgt >= weight_limit && tgt_wgt >= weight_limit)) {
+                if (use_pr2 && (!find_all_cuts ||
+                    (n_wgt >= weight_limit && tgt_wgt >= weight_limit))) {
                     // node degrees change when we contract edges.
                     // thus, we only use PR 2 or 3
                     // when the incident vertices haven't been contracted yet
@@ -116,8 +165,97 @@ class tests {
                                 bool find_all_cuts = false) {
         union_find uf(G->number_of_nodes());
         G->computeDegrees();
+        auto cfg = configuration::getConfig();
+        const bool use_pr3 = cfg->enable_pr3;
+        const bool use_pr4 = cfg->enable_pr4;
         std::vector<uint8_t> finished(G->number_of_nodes(), false);
         std::vector<uint8_t> contracted(G->number_of_nodes(), 0);
+
+        if (use_pr3 && use_pr4) {
+#pragma omp parallel
+            {
+                std::vector<std::pair<NodeID, EdgeID> > marked(
+                    G->number_of_nodes(),
+                    std::make_pair(UNDEFINED_NODE, UNDEFINED_EDGE));
+#pragma omp for schedule(dynamic, 100)
+                for (NodeID n = 0; n < G->number_of_nodes(); ++n) {
+                    if (finished[n])
+                        continue;
+
+                    finished[n] = true;
+
+                    for (EdgeID e : G->edges_of(n)) {
+                        NodeID tgt = G->getEdgeTarget(n, e);
+                        if (tgt > n) {
+                            marked[tgt] = std::make_pair(n, e);
+                        }
+                    }
+
+                    NodeID deg_n = G->getWeightedNodeDegree(n);
+                    for (EdgeID e1 : G->edges_of(n)) {
+                        auto [tgt, w1] = G->getEdge(n, e1);
+                        NodeID deg_tgt = G->getWeightedNodeDegree(tgt);
+                        finished[tgt] = true;
+                        EdgeWeight wgt_sum = w1;
+                        if (tgt > n) {
+                            for (EdgeID e2 : G->edges_of(tgt)) {
+                                NodeID tgt2 = G->getEdgeTarget(tgt, e2);
+                                if (marked[tgt2].second == UNDEFINED_EDGE)
+                                    continue;
+
+                                if (marked[tgt2].first != n)
+                                    continue;
+
+                                EdgeWeight w2 = G->getEdgeWeight(tgt, e2);
+                                EdgeWeight w3 = G->getEdgeWeight(
+                                    n, marked[tgt2].second);
+
+                                wgt_sum += std::min(w2, w3);
+
+                                bool contractible_one_cut =
+                                    !find_all_cuts
+                                    && 2 * (w1 + w3) >= deg_n
+                                    && 2 * (w1 + w2) >= deg_tgt;
+
+                                bool contractible_all_cuts =
+                                    find_all_cuts
+                                    && 2 * (w1 + w3) > deg_n
+                                    && 2 * (w1 + w2) > deg_tgt
+                                    && deg_n >= weight_limit
+                                    && deg_tgt >= weight_limit;
+
+                                if (contractible_one_cut ||
+                                    contractible_all_cuts) {
+                                    // node degrees change when we contract edges.
+                                    // thus, we only use PR 2 or 3 when the
+                                    // incident vertices haven't been contracted yet
+                                    // keeping a data structure with current
+                                    // degrees would be too expensive in parallel
+                                    if (__sync_bool_compare_and_swap(
+                                            &contracted[n], false, true)) {
+                                        if (__sync_bool_compare_and_swap(
+                                                &contracted[tgt], false, true)) {
+                                            uf.Union(n, tgt);
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+
+                            if (wgt_sum >= weight_limit) {
+                                contracted[n] = true;
+                                contracted[tgt] = true;
+                                uf.Union(n, tgt);
+                            }
+                            marked[tgt] = std::make_pair(UNDEFINED_NODE,
+                                                         UNDEFINED_EDGE);
+                        }
+                    }
+                }
+            }
+            return uf;
+        }
+
 #pragma omp parallel
         {
             std::vector<std::pair<NodeID, EdgeID> > marked(
@@ -170,8 +308,8 @@ class tests {
                                 && deg_n >= weight_limit
                                 && deg_tgt >= weight_limit;
 
-                            if (contractible_one_cut ||
-                                contractible_all_cuts) {
+                            if (use_pr3 && (contractible_one_cut ||
+                                contractible_all_cuts)) {
                                 // node degrees change when we contract edges.
                                 // thus, we only use PR 2 or 3 when the
                                 // incident vertices haven't been contracted yet
@@ -188,7 +326,7 @@ class tests {
                             }
                         }
 
-                        if (wgt_sum >= weight_limit) {
+                        if (use_pr4 && wgt_sum >= weight_limit) {
                             contracted[n] = true;
                             contracted[tgt] = true;
                             uf.Union(n, tgt);

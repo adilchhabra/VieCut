@@ -77,6 +77,12 @@ class configuration {
     bool find_lowest_conductance = false;
     bool blacklist = true;
     bool set_node_in_cut = false;
+    bool enable_label_propagation = true;
+    bool enable_trivial_cut_search = true;
+    bool enable_pr1 = true;
+    bool enable_pr2 = true;
+    bool enable_pr3 = true;
+    bool enable_pr4 = true;
 
     // cactus graph output
     std::string cactus_filename = "";

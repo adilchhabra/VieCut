@@ -18,6 +18,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/configuration.h"
 #include "common/definitions.h"
 #include "data_structure/graph_access.h"
 #include "data_structure/union_find.h"
@@ -60,6 +61,46 @@ class tests {
         union_find uf(G->number_of_nodes());
         G->computeDegrees();
         std::vector<bool> contracted(G->number_of_nodes(), false);
+        auto cfg = configuration::getConfig();
+        const bool use_pr1 = cfg->enable_pr1;
+        const bool use_pr2 = cfg->enable_pr2;
+
+        if (use_pr1 && use_pr2) {
+            for (NodeID n : G->nodes()) {
+                NodeWeight n_wgt = G->getWeightedNodeDegree(n);
+                for (EdgeID e : G->edges_of(n)) {
+                    auto [t, wgt] = G->getEdge(n, e);
+                    NodeID target = uf.Find(t);
+                    NodeID t_wgt = G->getWeightedNodeDegree(t);
+                    NodeID source = uf.Find(n);
+
+                    if (wgt >= limit) {
+                        uf.Union(source, target);
+                        contracted[n] = true;
+                        contracted[t] = true;
+                    }
+
+                    // if we want to find all cuts
+                    // we are not allowed to contract an edge
+                    // if an incident vertex has degree mincut
+                    // (as the singleton cut might be important)
+                    if (!find_all_cuts || (n_wgt >= limit && t_wgt >= limit)) {
+                        if (2 * wgt > n_wgt && (!find_all_cuts || !contracted[n])) {
+                            contracted[n] = true;
+                            contracted[t] = true;
+                            uf.Union(n, t);
+                        }
+                        if (2 * wgt > t_wgt && (!find_all_cuts || !contracted[t])) {
+                            contracted[n] = true;
+                            contracted[t] = true;
+                            uf.Union(n, t);
+                        }
+                    }
+                }
+            }
+            return uf;
+        }
+
         for (NodeID n : G->nodes()) {
             NodeWeight n_wgt = G->getWeightedNodeDegree(n);
             for (EdgeID e : G->edges_of(n)) {
@@ -68,7 +109,7 @@ class tests {
                 NodeID t_wgt = G->getWeightedNodeDegree(t);
                 NodeID source = uf.Find(n);
 
-                if (wgt >= limit) {
+                if (use_pr1 && wgt >= limit) {
                     uf.Union(source, target);
                     contracted[n] = true;
                     contracted[t] = true;
@@ -78,7 +119,7 @@ class tests {
                 // we are not allowed to contract an edge
                 // if an incident vertex has degree mincut
                 // (as the singleton cut might be important)
-                if (!find_all_cuts || (n_wgt >= limit && t_wgt >= limit)) {
+                if (use_pr2 && (!find_all_cuts || (n_wgt >= limit && t_wgt >= limit))) {
                     if (2 * wgt > n_wgt && (!find_all_cuts || !contracted[n])) {
                         contracted[n] = true;
                         contracted[t] = true;
@@ -105,6 +146,87 @@ class tests {
             std::make_pair(UNDEFINED_NODE, UNDEFINED_EDGE));
         std::vector<bool> finished(G->number_of_nodes(), false);
         std::vector<bool> contracted(G->number_of_nodes(), false);
+        auto cfg = configuration::getConfig();
+        const bool use_pr3 = cfg->enable_pr3;
+        const bool use_pr4 = cfg->enable_pr4;
+
+        if (use_pr3 && use_pr4) {
+            for (NodeID n : G->nodes()) {
+                if (finished[n])
+                    continue;
+
+                finished[n] = true;
+                for (EdgeID e : G->edges_of(n)) {
+                    NodeID tgt = G->getEdgeTarget(n, e);
+                    if (tgt > n) {
+                        marked[tgt] = std::make_pair(n, e);
+                    }
+                }
+
+                EdgeWeight deg_n = G->getWeightedNodeDegree(n);
+                for (EdgeID e1 : G->edges_of(n)) {
+                    NodeID tgt = G->getEdgeTarget(n, e1);
+                    EdgeWeight deg_tgt = G->getWeightedNodeDegree(tgt);
+                    if (finished[tgt]) {
+                        marked[tgt] =
+                            std::make_pair(UNDEFINED_NODE, UNDEFINED_EDGE);
+                        continue;
+                    }
+
+                    EdgeWeight w1 = G->getEdgeWeight(n, e1);
+                    finished[tgt] = true;
+                    EdgeWeight wgt_sum = w1;
+                    if (tgt > n) {
+                        for (EdgeID e2 : G->edges_of(tgt)) {
+                            NodeID tgt2 = G->getEdgeTarget(tgt, e2);
+                            if (marked[tgt2].second == UNDEFINED_EDGE)
+                                continue;
+
+                            if (marked[tgt2].first != n) {
+                                continue;
+                            }
+
+                            EdgeWeight w2 = G->getEdgeWeight(tgt, e2);
+                            EdgeWeight w3 =
+                                G->getEdgeWeight(n, marked[tgt2].second);
+
+                            wgt_sum += std::min(w2, w3);
+
+                            bool contractible_one_cut =
+                                !find_all_cuts && 2 * (w1 + w3) >= deg_n
+                                && 2 * (w1 + w2) >= deg_tgt;
+
+                            // if we want to find all cuts
+                            // we are not allowed to contract an edge
+                            // when an incident vertex has degree mincut
+                            // (as the singleton cut might be important)
+                            // also the triangle having exactly half the weight
+                            // of n or tgt ir not enough any more
+                            bool contractible_all_cuts =
+                                find_all_cuts
+                                && 2 * (w1 + w3) > deg_n && 2 * (w1 + w2) > deg_tgt
+                                && deg_n >= weight_limit && deg_tgt >= weight_limit;
+
+                            if ((contractible_one_cut || contractible_all_cuts)
+                                && !contracted[n] && !contracted[tgt]) {
+                                uf.Union(n, tgt);
+                                contracted[n] = true;
+                                contracted[tgt] = true;
+                            }
+                        }
+
+                        if (wgt_sum >= weight_limit) {
+                            uf.Union(n, tgt);
+                            contracted[n] = true;
+                            contracted[tgt] = true;
+                        }
+                        marked[tgt] =
+                            std::make_pair(UNDEFINED_NODE, UNDEFINED_EDGE);
+                    }
+                }
+            }
+            return uf;
+        }
 
         for (NodeID n : G->nodes()) {
             if (finished[n])
@@ -162,7 +284,7 @@ class tests {
                             && 2 * (w1 + w3) > deg_n && 2 * (w1 + w2) > deg_tgt
                             && deg_n >= weight_limit && deg_tgt >= weight_limit;
 
-                        if ((contractible_one_cut || contractible_all_cuts)
+                        if (use_pr3 && (contractible_one_cut || contractible_all_cuts)
                             && !contracted[n] && !contracted[tgt]) {
                             uf.Union(n, tgt);
                             contracted[n] = true;
@@ -170,7 +292,7 @@ class tests {
                         }
                     }
 
-                    if (wgt_sum >= weight_limit) {
+                    if (use_pr4 && wgt_sum >= weight_limit) {
                         uf.Union(n, tgt);
                         contracted[n] = true;
                         contracted[tgt] = true;
