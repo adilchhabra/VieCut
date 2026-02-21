@@ -28,6 +28,8 @@
 #include "io/graph_io.h"
 #include "tlx/cmdline_parser.hpp"
 #include "tlx/logger.hpp"
+#include "tools/graph_features.h"
+#include "tools/preset_selector.h"
 #include "tools/random_functions.h"
 #include "tools/string.h"
 #include "tools/timer.h"
@@ -49,6 +51,7 @@ int main(int argn, char** argv) {
     bool disable_pr4 = false;
     bool disable_lp = false;
     bool disable_trivial = false;
+    bool auto_preset = false;
 
     cmdl.add_param_string("graph", cfg->graph_filename, "path to graph file");
 #ifdef PARALLEL
@@ -90,6 +93,8 @@ int main(int argn, char** argv) {
                   "disable label propagation contraction");
     cmdl.add_flag('F', "disable_trivial", disable_trivial,
                   "disable trivial-cut local search");
+    cmdl.add_flag('X', "auto_preset", auto_preset,
+                  "guess graph class/preset from fast feature scan");
 
     if (!cmdl.process(argn, argv))
         return -1;
@@ -99,12 +104,12 @@ int main(int argn, char** argv) {
         cfg->find_most_balanced_cut = true;
     }
 
-    cfg->enable_pr1 = !disable_pr1;
-    cfg->enable_pr2 = !disable_pr2;
-    cfg->enable_pr3 = !disable_pr3;
-    cfg->enable_pr4 = !disable_pr4;
-    cfg->enable_label_propagation = !disable_lp;
-    cfg->enable_trivial_cut_search = !disable_trivial;
+    cfg->enable_pr1 = true;
+    cfg->enable_pr2 = true;
+    cfg->enable_pr3 = true;
+    cfg->enable_pr4 = true;
+    cfg->enable_label_propagation = true;
+    cfg->enable_trivial_cut_search = true;
 
     if (cfg->cactus_filename != "" ) {
         // need save_cut to properly maintain containedVertices, see https://github.com/VieCut/VieCut/issues/7
@@ -117,6 +122,25 @@ int main(int argn, char** argv) {
         configuration::getConfig()->graph_filename);
 
     LOG1 << "io time: " << t.elapsed();
+
+    if (auto_preset) {
+        auto feats = autotune::computeGraphFeatures(G);
+        auto decision = autotune::recommendPreset(feats);
+        autotune::applyPreset(cfg, decision.toggles);
+        LOG1 << "AUTO_PRESET class=" << decision.guessed_class
+             << " preset=" << decision.preset_name
+             << " confidence=" << decision.confidence
+             << " rationale=\"" << decision.rationale << "\""
+             << " flags=\"" << autotune::disabledFlags(decision.toggles) << "\"";
+    }
+
+    // Explicit command-line disables always override auto preset choices.
+    if (disable_pr1) cfg->enable_pr1 = false;
+    if (disable_pr2) cfg->enable_pr2 = false;
+    if (disable_pr3) cfg->enable_pr3 = false;
+    if (disable_pr4) cfg->enable_pr4 = false;
+    if (disable_lp) cfg->enable_label_propagation = false;
+    if (disable_trivial) cfg->enable_trivial_cut_search = false;
     // ***************************** perform cut *****************************
 #ifdef PARALLEL
     LOGC(cfg->verbose) << "PARALLEL DEFINED!";
