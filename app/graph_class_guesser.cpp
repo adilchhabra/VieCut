@@ -60,11 +60,21 @@ int main(int argn, char** argv) {
               << " isolated_fraction=" << f.isolated_fraction
               << " kcore_max=" << f.kcore_max
               << " kcore_mean=" << f.kcore_mean
+              << " kcore_top_fraction=" << f.kcore_top_fraction
+              << " kcore_ge_2_fraction=" << f.kcore_ge_2_fraction
+              << " kcore_ge_4_fraction=" << f.kcore_ge_4_fraction
+              << " kcore_ge_8_fraction=" << f.kcore_ge_8_fraction
               << " component_count=" << f.component_count
               << " largest_component_fraction=" << f.largest_component_fraction
               << " second_component_fraction=" << f.second_component_fraction
               << " clustering_sampled_mean=" << f.clustering_sampled_mean
               << " clustering_samples_used=" << f.clustering_samples_used
+              << " transitivity_sampled=" << f.transitivity_sampled
+              << " degree_assortativity_sampled=" << f.degree_assortativity_sampled
+              << " bfs_mean_distance=" << f.bfs_mean_distance
+              << " bfs_p90_distance=" << f.bfs_p90_distance
+              << " bfs_diameter_proxy=" << f.bfs_diameter_proxy
+              << " bfs_reachable_fraction=" << f.bfs_reachable_fraction
               << " io_time=" << io_time
               << " feature_time=" << feature_time
               << std::endl;

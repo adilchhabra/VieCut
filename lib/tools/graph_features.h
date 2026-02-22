@@ -42,6 +42,16 @@ struct GraphFeatures {
     double second_component_fraction = 0.0;
     double clustering_sampled_mean = 0.0;
     double clustering_samples_used = 0.0;
+    double transitivity_sampled = 0.0;
+    double degree_assortativity_sampled = 0.0;
+    double bfs_mean_distance = 0.0;
+    double bfs_p90_distance = 0.0;
+    double bfs_diameter_proxy = 0.0;
+    double bfs_reachable_fraction = 0.0;
+    double kcore_top_fraction = 0.0;
+    double kcore_ge_2_fraction = 0.0;
+    double kcore_ge_4_fraction = 0.0;
+    double kcore_ge_8_fraction = 0.0;
 };
 
 inline double quantile_sorted(const std::vector<double>& sorted, double q) {
@@ -72,6 +82,8 @@ GraphFeatures computeGraphFeatures(GraphPtr G) {
     static constexpr size_t kClusteringSampleBudget = 64;
     static constexpr EdgeID kClusteringDegreeCap = 20000;
     static constexpr size_t kTailTopBudget = 128;
+    static constexpr size_t kAssortativityEdgeBudget = 100000;
+    static constexpr size_t kBfsSourceBudget = 8;
 
     GraphFeatures f;
     if (!G) {
@@ -270,12 +282,38 @@ GraphFeatures computeGraphFeatures(GraphPtr G) {
 
         NodeID kmax = 0;
         double ksum = 0.0;
+        size_t top_count = 0;
+        size_t ge2_count = 0;
+        size_t ge4_count = 0;
+        size_t ge8_count = 0;
         for (NodeID d : degree) {
             kmax = std::max(kmax, d);
             ksum += static_cast<double>(d);
+            if (d >= 2) {
+                ++ge2_count;
+            }
+            if (d >= 4) {
+                ++ge4_count;
+            }
+            if (d >= 8) {
+                ++ge8_count;
+            }
+        }
+        for (NodeID d : degree) {
+            if (d == kmax) {
+                ++top_count;
+            }
         }
         f.kcore_max = static_cast<double>(kmax);
         f.kcore_mean = ksum / static_cast<double>(f.nodes);
+        f.kcore_top_fraction =
+            static_cast<double>(top_count) / static_cast<double>(f.nodes);
+        f.kcore_ge_2_fraction =
+            static_cast<double>(ge2_count) / static_cast<double>(f.nodes);
+        f.kcore_ge_4_fraction =
+            static_cast<double>(ge4_count) / static_cast<double>(f.nodes);
+        f.kcore_ge_8_fraction =
+            static_cast<double>(ge8_count) / static_cast<double>(f.nodes);
     }
 
     // Sampled local clustering coefficient.
@@ -312,6 +350,8 @@ GraphFeatures computeGraphFeatures(GraphPtr G) {
             std::vector<NodeID> neighbors;
 
             double sum_cc = 0.0;
+            double wedges_total = 0.0;
+            double closed_wedges_total = 0.0;
             size_t used = 0;
             for (NodeID v : sampled_nodes) {
                 if (epoch == std::numeric_limits<uint32_t>::max()) {
@@ -346,6 +386,9 @@ GraphFeatures computeGraphFeatures(GraphPtr G) {
                 const double wedges = d * (d - 1.0);
                 if (wedges > 0.0) {
                     sum_cc += static_cast<double>(links_times_two) / wedges;
+                    wedges_total += (d * (d - 1.0)) / 2.0;
+                    closed_wedges_total +=
+                        static_cast<double>(links_times_two) / 2.0;
                     ++used;
                 }
             }
@@ -354,6 +397,157 @@ GraphFeatures computeGraphFeatures(GraphPtr G) {
                 f.clustering_sampled_mean =
                     sum_cc / static_cast<double>(used);
                 f.clustering_samples_used = static_cast<double>(used);
+            }
+            if (wedges_total > 0.0) {
+                f.transitivity_sampled = closed_wedges_total / wedges_total;
+            }
+        }
+    }
+
+    // Degree assortativity proxy from a bounded sample of unique undirected edges.
+    {
+        const size_t m = static_cast<size_t>(f.edges_undirected);
+        const size_t stride =
+            std::max<size_t>(1, (m > 0) ? (m / kAssortativityEdgeBudget) : 1);
+
+        double sum_x = 0.0;
+        double sum_y = 0.0;
+        double sum_x2 = 0.0;
+        double sum_y2 = 0.0;
+        double sum_xy = 0.0;
+        size_t cnt = 0;
+        size_t seen = 0;
+
+        for (NodeID u : G->nodes()) {
+            for (EdgeID e : G->edges_of(u)) {
+                NodeID v = G->getEdgeTarget(u, e);
+                if (u >= v) {
+                    continue;
+                }
+                if ((seen % stride) == 0) {
+                    double du = static_cast<double>(degree_int[u]);
+                    double dv = static_cast<double>(degree_int[v]);
+                    sum_x += du;
+                    sum_y += dv;
+                    sum_x2 += du * du;
+                    sum_y2 += dv * dv;
+                    sum_xy += du * dv;
+                    ++cnt;
+                    if (cnt >= kAssortativityEdgeBudget) {
+                        break;
+                    }
+                }
+                ++seen;
+            }
+            if (cnt >= kAssortativityEdgeBudget) {
+                break;
+            }
+        }
+
+        if (cnt >= 2) {
+            double n = static_cast<double>(cnt);
+            double cov = (sum_xy / n) - (sum_x / n) * (sum_y / n);
+            double var_x = (sum_x2 / n) - (sum_x / n) * (sum_x / n);
+            double var_y = (sum_y2 / n) - (sum_y / n) * (sum_y / n);
+            double denom = std::sqrt(std::max(0.0, var_x * var_y));
+            if (denom > 1e-15) {
+                f.degree_assortativity_sampled = cov / denom;
+            }
+        }
+    }
+
+    // Sampled BFS distance profile.
+    {
+        size_t sources = std::min(kBfsSourceBudget, static_cast<size_t>(f.nodes));
+        if (sources > 0) {
+            std::vector<NodeID> sampled_sources;
+            sampled_sources.reserve(sources);
+            for (size_t i = 0; i < sources; ++i) {
+                size_t idx = (i * static_cast<size_t>(f.nodes)) / sources;
+                if (idx >= static_cast<size_t>(f.nodes)) {
+                    idx = static_cast<size_t>(f.nodes) - 1;
+                }
+                sampled_sources.push_back(static_cast<NodeID>(idx));
+            }
+
+            std::vector<int32_t> dist(f.nodes, -1);
+            std::vector<NodeID> queue;
+            queue.reserve(f.nodes);
+            std::vector<double> source_means;
+            std::vector<double> source_p90;
+            double reach_frac_sum = 0.0;
+            double diam_proxy = 0.0;
+
+            for (NodeID s : sampled_sources) {
+                std::fill(dist.begin(), dist.end(), -1);
+                queue.clear();
+                queue.push_back(s);
+                dist[s] = 0;
+                size_t head = 0;
+
+                double sum_dist = 0.0;
+                size_t reached = 0;
+                int32_t max_dist = 0;
+                std::vector<int32_t> dvals;
+
+                while (head < queue.size()) {
+                    NodeID v = queue[head++];
+                    int32_t dv = dist[v];
+                    ++reached;
+                    if (dv > 0) {
+                        sum_dist += static_cast<double>(dv);
+                        dvals.push_back(dv);
+                    }
+                    if (dv > max_dist) {
+                        max_dist = dv;
+                    }
+
+                    for (EdgeID e : G->edges_of(v)) {
+                        NodeID u = G->getEdgeTarget(v, e);
+                        if (dist[u] == -1) {
+                            dist[u] = dv + 1;
+                            queue.push_back(u);
+                        }
+                    }
+                }
+
+                if (reached > 1) {
+                    source_means.push_back(sum_dist / static_cast<double>(reached - 1));
+                } else {
+                    source_means.push_back(0.0);
+                }
+                if (!dvals.empty()) {
+                    std::sort(dvals.begin(), dvals.end());
+                    std::vector<double> dvals_double;
+                    dvals_double.reserve(dvals.size());
+                    for (int32_t d : dvals) {
+                        dvals_double.push_back(static_cast<double>(d));
+                    }
+                    source_p90.push_back(quantile_sorted(dvals_double, 0.90));
+                } else {
+                    source_p90.push_back(0.0);
+                }
+                reach_frac_sum +=
+                    static_cast<double>(reached) / static_cast<double>(f.nodes);
+                diam_proxy = std::max(diam_proxy, static_cast<double>(max_dist));
+            }
+
+            if (!source_means.empty()) {
+                double mean_sum = 0.0;
+                double p90_sum = 0.0;
+                for (double x : source_means) {
+                    mean_sum += x;
+                }
+                for (double x : source_p90) {
+                    p90_sum += x;
+                }
+                f.bfs_mean_distance =
+                    mean_sum / static_cast<double>(source_means.size());
+                f.bfs_p90_distance =
+                    p90_sum / static_cast<double>(source_p90.size());
+                f.bfs_reachable_fraction =
+                    reach_frac_sum / static_cast<double>(source_means.size());
+                f.bfs_diameter_proxy = diam_proxy;
             }
         }
     }

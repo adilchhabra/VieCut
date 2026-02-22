@@ -103,11 +103,21 @@ def main():
         "feature_isolated_fraction",
         "feature_kcore_max",
         "feature_kcore_mean",
+        "feature_kcore_top_fraction",
+        "feature_kcore_ge_2_fraction",
+        "feature_kcore_ge_4_fraction",
+        "feature_kcore_ge_8_fraction",
         "feature_component_count",
         "feature_largest_component_fraction",
         "feature_second_component_fraction",
         "feature_clustering_sampled_mean",
         "feature_clustering_samples_used",
+        "feature_transitivity_sampled",
+        "feature_degree_assortativity_sampled",
+        "feature_bfs_mean_distance",
+        "feature_bfs_p90_distance",
+        "feature_bfs_diameter_proxy",
+        "feature_bfs_reachable_fraction",
         "feature_io_time",
         "feature_time",
         "command",
@@ -222,6 +232,18 @@ def main():
             )
             out_row["feature_kcore_max"] = as_float(features.get("kcore_max", ""))
             out_row["feature_kcore_mean"] = as_float(features.get("kcore_mean", ""))
+            out_row["feature_kcore_top_fraction"] = as_float(
+                features.get("kcore_top_fraction", "")
+            )
+            out_row["feature_kcore_ge_2_fraction"] = as_float(
+                features.get("kcore_ge_2_fraction", "")
+            )
+            out_row["feature_kcore_ge_4_fraction"] = as_float(
+                features.get("kcore_ge_4_fraction", "")
+            )
+            out_row["feature_kcore_ge_8_fraction"] = as_float(
+                features.get("kcore_ge_8_fraction", "")
+            )
             out_row["feature_component_count"] = as_float(features.get("component_count", ""))
             out_row["feature_largest_component_fraction"] = as_float(
                 features.get("largest_component_fraction", "")
@@ -234,6 +256,24 @@ def main():
             )
             out_row["feature_clustering_samples_used"] = as_float(
                 features.get("clustering_samples_used", "")
+            )
+            out_row["feature_transitivity_sampled"] = as_float(
+                features.get("transitivity_sampled", "")
+            )
+            out_row["feature_degree_assortativity_sampled"] = as_float(
+                features.get("degree_assortativity_sampled", "")
+            )
+            out_row["feature_bfs_mean_distance"] = as_float(
+                features.get("bfs_mean_distance", "")
+            )
+            out_row["feature_bfs_p90_distance"] = as_float(
+                features.get("bfs_p90_distance", "")
+            )
+            out_row["feature_bfs_diameter_proxy"] = as_float(
+                features.get("bfs_diameter_proxy", "")
+            )
+            out_row["feature_bfs_reachable_fraction"] = as_float(
+                features.get("bfs_reachable_fraction", "")
             )
             out_row["feature_io_time"] = as_float(features.get("io_time", ""))
             out_row["feature_time"] = as_float(features.get("feature_time", ""))
