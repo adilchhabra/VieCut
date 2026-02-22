@@ -50,11 +50,21 @@ int main(int argn, char** argv) {
               << " degree_p50=" << f.degree_p50
               << " degree_p90=" << f.degree_p90
               << " degree_p99=" << f.degree_p99
+              << " degree_ratio_p99_p50=" << f.degree_ratio_p99_p50
+              << " degree_ratio_max_p90=" << f.degree_ratio_max_p90
+              << " degree_tail_hill_alpha=" << f.degree_tail_hill_alpha
               << " degree_stddev=" << f.degree_stddev
               << " degree_cv=" << f.degree_cv
               << " max_degree=" << f.max_degree
               << " leaf_fraction=" << f.leaf_fraction
               << " isolated_fraction=" << f.isolated_fraction
+              << " kcore_max=" << f.kcore_max
+              << " kcore_mean=" << f.kcore_mean
+              << " component_count=" << f.component_count
+              << " largest_component_fraction=" << f.largest_component_fraction
+              << " second_component_fraction=" << f.second_component_fraction
+              << " clustering_sampled_mean=" << f.clustering_sampled_mean
+              << " clustering_samples_used=" << f.clustering_samples_used
               << " io_time=" << io_time
               << " feature_time=" << feature_time
               << std::endl;

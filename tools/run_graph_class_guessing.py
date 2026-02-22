@@ -93,11 +93,21 @@ def main():
         "feature_degree_p50",
         "feature_degree_p90",
         "feature_degree_p99",
+        "feature_degree_ratio_p99_p50",
+        "feature_degree_ratio_max_p90",
+        "feature_degree_tail_hill_alpha",
         "feature_degree_stddev",
         "feature_degree_cv",
         "feature_max_degree",
         "feature_leaf_fraction",
         "feature_isolated_fraction",
+        "feature_kcore_max",
+        "feature_kcore_mean",
+        "feature_component_count",
+        "feature_largest_component_fraction",
+        "feature_second_component_fraction",
+        "feature_clustering_sampled_mean",
+        "feature_clustering_samples_used",
         "feature_io_time",
         "feature_time",
         "command",
@@ -194,12 +204,36 @@ def main():
             out_row["feature_degree_p50"] = as_float(features.get("degree_p50", ""))
             out_row["feature_degree_p90"] = as_float(features.get("degree_p90", ""))
             out_row["feature_degree_p99"] = as_float(features.get("degree_p99", ""))
+            out_row["feature_degree_ratio_p99_p50"] = as_float(
+                features.get("degree_ratio_p99_p50", "")
+            )
+            out_row["feature_degree_ratio_max_p90"] = as_float(
+                features.get("degree_ratio_max_p90", "")
+            )
+            out_row["feature_degree_tail_hill_alpha"] = as_float(
+                features.get("degree_tail_hill_alpha", "")
+            )
             out_row["feature_degree_stddev"] = as_float(features.get("degree_stddev", ""))
             out_row["feature_degree_cv"] = as_float(features.get("degree_cv", ""))
             out_row["feature_max_degree"] = as_float(features.get("max_degree", ""))
             out_row["feature_leaf_fraction"] = as_float(features.get("leaf_fraction", ""))
             out_row["feature_isolated_fraction"] = as_float(
                 features.get("isolated_fraction", "")
+            )
+            out_row["feature_kcore_max"] = as_float(features.get("kcore_max", ""))
+            out_row["feature_kcore_mean"] = as_float(features.get("kcore_mean", ""))
+            out_row["feature_component_count"] = as_float(features.get("component_count", ""))
+            out_row["feature_largest_component_fraction"] = as_float(
+                features.get("largest_component_fraction", "")
+            )
+            out_row["feature_second_component_fraction"] = as_float(
+                features.get("second_component_fraction", "")
+            )
+            out_row["feature_clustering_sampled_mean"] = as_float(
+                features.get("clustering_sampled_mean", "")
+            )
+            out_row["feature_clustering_samples_used"] = as_float(
+                features.get("clustering_samples_used", "")
             )
             out_row["feature_io_time"] = as_float(features.get("io_time", ""))
             out_row["feature_time"] = as_float(features.get("feature_time", ""))
@@ -212,4 +246,3 @@ def main():
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
