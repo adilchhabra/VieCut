@@ -1,0 +1,147 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{booktabs}
+\usepackage{amsmath}
+\usepackage{enumitem}
+\usepackage{longtable}
+
+\title{Ablation-Guided Preset Selection for VieCut}
+\author{}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\section{Reduction Set}
+VieCut's min-cut reduction pipeline considered in this study consists of:
+\begin{itemize}[leftmargin=*]
+	\item \texttt{lp}: label-propagation contraction; merges locally similar vertices to shrink the graph quickly.
+	
+	\item \texttt{trivial}: local search refinement within clusters; identifies and moves ``mismatched" vertices out of small clusters
+	
+	\item \texttt{pr1}: Padberg--Rinaldi rule~1; contract $(u,v)$ if the edge dominates one endpoint, i.e.\ 
+	$c(u,v) \ge \tfrac{1}{2} w(u)$ or $c(u,v) \ge \tfrac{1}{2} w(v)$.
+	
+	\item \texttt{pr2}: Padberg--Rinaldi rule~2; contract $(u,v)$ if the edge weight already exceeds a known lower bound on the global min-cut value, i.e.\ 
+	$c(u,v) \ge \underline{\lambda}$.
+	
+	\item \texttt{pr3}: Padberg--Rinaldi rule~3; contract $(u,v)$ if it is not weaker than its connections through a common neighbor, i.e.\ 
+	there exists $w$ with $c(u,v) \ge \min\{c(u,w),c(v,w)\}$.
+	
+	\item \texttt{pr4}: Padberg--Rinaldi rule~4; contract $(u,v)$ if separating the endpoints is no cheaper than isolating either vertex, i.e.\ 
+	$c(u,v) \ge \min\{w(u)-c(u,v),\, w(v)-c(u,v)\}$.
+\end{itemize}
+
+\section{Class-to-Preset Ablation Summary}
+Table~\ref{tab:class-preset-gains} summarizes, by graph class, the recommended preset from ablations, runtime gain over baseline, and change in pre-NOI structural reduction metrics.
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{l l r r r}
+\toprule
+Class & Preset & $\Delta t$ (s) & Speedup & $\Delta$ pre-NOI $n$ gain (\%) \\
+\midrule
+citation     & \texttt{no\_lp}      & 0.017 & 1.082 & 0.0 \\
+co-purchase  & \texttt{no\_trivial} & 0.010 & 1.032 & 0.0 \\
+delaunay     & \texttt{no\_trivial} & 0.011 & 1.174 & 0.0 \\
+dyn-frames   & \texttt{no\_pr4}     & 1.260 & 1.087 & $-4.975\times10^5$ \\
+er           & \texttt{no\_lp}      & 11.403 & 1.610 & $-3.146\times10^8$ \\
+kronecker    & \texttt{no\_trivial} & 0.002 & 1.004 & 0.0 \\
+matrix       & \texttt{no\_trivial} & 0.024 & 1.020 & 0.0 \\
+mesh         & \texttt{no\_pr4}     & 0.020 & 1.009 & 0.0 \\
+numerical    & \texttt{no\_trivial} & 0.509 & 1.145 & 0.0 \\
+rgg          & \texttt{no\_trivial} & 0.007 & 1.019 & 0.0 \\
+social       & \texttt{no\_pr4}     & 0.020 & 1.014 & 0.0 \\
+street       & \texttt{no\_lp}      & 0.141 & 1.212 & 0.0 \\
+web          & \texttt{no\_trivial} & 0.020 & 1.042 & 0.0 \\
+\bottomrule
+\end{tabular}
+\caption{Preset recommendation by class.}
+\label{tab:class-preset-gains}
+\end{table}
+
+\noindent\textbf{Cut correctness.} Cut value did not change in these experiments: all classes had zero cut mismatches vs baseline.
+
+\section{High-Impact Classification Policy: \texttt{er}/\texttt{street} vs Rest}
+From Table~\ref{tab:class-preset-gains}, the highest speedup impact is dominated by detecting \texttt{er} and \texttt{street} (both map to \texttt{no\_lp}); all remaining classes can safely use \texttt{no\_trivial} as the default.
+
+Recommended policy:
+\[
+\{\texttt{er},\ \texttt{street},\ \texttt{other}\},\quad
+\texttt{other} \rightarrow \texttt{no\_trivial}.
+\]
+
+Model (Histogram-based Gradient Boosting Classification Tree) quality for a compact 7-feature classifier (20 grouped holdout splits, grouped by graph):
+\begin{itemize}[leftmargin=*]
+    \item mean accuracy: $0.9690 \pm 0.0241$
+    \item mean macro-F1: $0.9211 \pm 0.0640$
+\end{itemize}
+
+\subsection*{Top Choice Features (Minimal/Fast Set)}
+\begin{enumerate}[leftmargin=*]
+    \item \texttt{feature\_degree\_p50}: the median node degree (50th percentile). This is the ``typical'' connectivity level of a vertex and is robust to extreme hubs. If this value is high, the graph is globally more connected in a uniform sense; if low, the graph is generally sparse.
+    \item \texttt{feature\_degree\_ratio\_max\_p90}: ratio of maximum degree to 90th-percentile degree. This measures how extreme the single largest hub is relative to already-high-degree vertices. Values near 1 indicate no exceptional hub; very large values indicate hub-dominated structure.
+    \item \texttt{feature\_degree\_assortativity\_sampled}: sampled Pearson correlation of degrees at both endpoints of an edge. Positive values suggest high-degree nodes connect to high-degree nodes (assortative), while negative values indicate hub-to-low-degree linking (disassortative). This helps separate different random/network formation patterns.
+    \item \texttt{feature\_kcore\_top\_fraction}: fraction of vertices that belong to the highest core index in a core decomposition. A large value means a substantial dense backbone; a small value means only a tiny elite core exists. This is useful for distinguishing uniform random-like connectivity from highly heterogeneous structure.
+    \item \texttt{feature\_degree\_tail\_hill\_alpha}: Hill-estimator-style proxy of degree-tail shape using top positive degrees. Larger values correspond to a thinner tail (less extreme heavy-tail behavior), smaller values to heavier tails. This directly captures whether degree heterogeneity is mild or severe.
+    \item \texttt{feature\_degree\_ratio\_p99\_p50}: ratio of 99th-percentile degree to median degree. This is a robust tail-vs-center spread indicator (less sensitive than max-based ratios). High values imply strong skew between typical and high-degree vertices.
+    \item \texttt{feature\_degree\_p90}: 90th-percentile degree, i.e., the degree level exceeded by only 10\% of nodes. It summarizes the upper-but-not-extreme part of the distribution and stabilizes decisions that would otherwise depend too much on a single maximum-degree outlier.
+\end{enumerate}
+
+%\subsection*{Feature Computation Detail and Cost}
+%\begin{table}[h]
+%\centering
+%\small
+%\begin{tabular}{l l l}
+%\toprule
+%Feature & Computation (high level) & Cost tier \\
+%\midrule
+%\texttt{degree\_p50} & degree scan + quantile from sorted degree vector & cheap \\
+%\texttt{degree\_ratio\_max\_p90} & max degree and p90 degree ratio & cheap \\
+%\texttt{degree\_assortativity\_sampled} & sampled edge endpoint degree correlation & moderate sampled \\
+%\texttt{kcore\_top\_fraction} & core decomposition + top-core count & medium \\
+%\texttt{degree\_tail\_hill\_alpha} & Hill-style tail estimate on top positive degrees & cheap \\
+%\texttt{degree\_ratio\_p99\_p50} & p99 to p50 degree ratio & cheap \\
+%\texttt{degree\_p90} & degree quantile at 90th percentile & cheap \\
+%\bottomrule
+%\end{tabular}
+%\caption{Selected 7-feature set with dominant computation used by the implementation.}
+%\end{table}
+
+%Most selected features are linear-pass degree statistics; the two heavier parts are sampled assortativity and one core decomposition pass.
+
+%\subsection*{Measured Feature-Extraction Time}
+%Feature extraction time (from \texttt{results/graph\_class\_guess\_more.csv}, using the current full extractor implementation) is:<
+%\begin{itemize}[leftmargin=*]
+%    \item median: $3.2067$ s
+%    \item p90: $28.9123$ s
+%    \item p95: $35.9276$ s
+%\end{itemize}
+%These values include computing the full feature superset currently emitted by \texttt{graph\_class\_guesser}, not only the selected 7-feature subset.
+
+%\subsection*{Inference-Time Check}
+%Measured median single-graph inference time for this 7-feature model is approximately
+%\[
+%4.43\ \text{ms}
+%\]
+%(in Python, model prediction only; excludes graph feature extraction).
+
+%Since the deployed policy uses only the 7 features above (and omits BFS/clustering features), practical extraction overhead can be reduced further with a dedicated fast-path extractor.
+
+%Even with this added inference overhead, the policy remains clearly beneficial relative to ablation gains:
+%\begin{itemize}[leftmargin=*]
+%    \item \texttt{er}: median runtime gain $11.403$ s
+%    \item \texttt{street}: median runtime gain $0.141$ s
+%\end{itemize}
+%Thus, model inference time is negligible compared to the observed per-instance runtime savings.
+
+\section{Dataset Used}
+The dataset for this study contains 113 graph instances, including all DIMACS10 instances. The table below lists graph name, class label, and size $(n,m)$ for each instance.
+
+\begingroup
+\small
+\input{tables/dataset_instances.tex}
+\endgroup
+
+\end{document}

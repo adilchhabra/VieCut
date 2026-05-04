@@ -83,6 +83,11 @@ class configuration {
     bool enable_pr2 = true;
     bool enable_pr3 = true;
     bool enable_pr4 = true;
+    bool use_jet_upper_bound = false;
+    bool jet_upper_bound_available = false;
+    EdgeWeight initial_cut_upper_bound = 0;
+    size_t jet_num_iterations = 1;
+    std::string jet_config_file = "";
 
     // cactus graph output
     std::string cactus_filename = "";

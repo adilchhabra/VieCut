@@ -29,6 +29,7 @@
 #include "tlx/cmdline_parser.hpp"
 #include "tlx/logger.hpp"
 #include "tools/graph_features.h"
+#include "tools/jet_upper_bound.h"
 #include "tools/preset_selector.h"
 #include "tools/random_functions.h"
 #include "tools/string.h"
@@ -52,6 +53,7 @@ int main(int argn, char** argv) {
     bool disable_lp = false;
     bool disable_trivial = false;
     bool auto_preset = false;
+    bool jet_ub = false;
 
     cmdl.add_param_string("graph", cfg->graph_filename, "path to graph file");
 #ifdef PARALLEL
@@ -95,6 +97,12 @@ int main(int argn, char** argv) {
                   "disable trivial-cut local search");
     cmdl.add_flag('X', "auto_preset", auto_preset,
                   "guess graph class/preset from fast feature scan");
+    cmdl.add_flag('J', "jet_ub", jet_ub,
+                  "use JET min-cut mode as an initial upper bound");
+    cmdl.add_string('Y', "jet_config", cfg->jet_config_file,
+                    "optional JET config file");
+    cmdl.add_size_t('Z', "jet_iter", cfg->jet_num_iterations,
+                    "number of JET upper-bound attempts");
 
     if (!cmdl.process(argn, argv))
         return -1;
@@ -122,6 +130,58 @@ int main(int argn, char** argv) {
         configuration::getConfig()->graph_filename);
 
     LOG1 << "io time: " << t.elapsed();
+
+    cfg->use_jet_upper_bound = jet_ub;
+    cfg->jet_upper_bound_available = false;
+    if (cfg->use_jet_upper_bound) {
+        timer jet_timer;
+        EdgeWeight min_degree = G->getMinDegree();
+        if (min_degree <= 1) {
+            LOG1 << "JET_UB status=skipped"
+                 << " graph=" << string::basename(cfg->graph_filename)
+                 << " reason=min_degree_le_1"
+                 << " jet_cut=NA"
+                 << " min_degree=" << min_degree
+                 << " used_cut=" << min_degree
+                 << " improved_min_degree=0"
+                 << " total_time=0"
+                 << " conversion_time=0"
+                 << " partition_time=0";
+        } else {
+            auto jet_result = jet_upper_bound::compute(G);
+            if (jet_result.success) {
+                cfg->initial_cut_upper_bound = jet_result.cut;
+                cfg->jet_upper_bound_available = true;
+                if (cfg->save_cut && jet_result.cut < min_degree &&
+                    jet_result.partition.size() == G->number_of_nodes()) {
+                    for (NodeID n : G->nodes()) {
+                        G->setNodeInCut(n, jet_result.partition[n] != 0);
+                    }
+                }
+                LOG1 << "JET_UB status=success"
+                     << " graph=" << string::basename(cfg->graph_filename)
+                     << " jet_cut=" << jet_result.cut
+                     << " min_degree=" << min_degree
+                     << " used_cut=" << std::min(min_degree, jet_result.cut)
+                     << " improved_min_degree="
+                     << (jet_result.cut < min_degree)
+                     << " total_time=" << jet_result.time
+                     << " conversion_time=" << jet_result.conversion_time
+                     << " partition_time=" << jet_result.partition_time;
+            } else {
+                LOG1 << "JET_UB status=failed graph="
+                     << string::basename(cfg->graph_filename)
+                     << " message=\"" << jet_result.message << "\""
+                     << " jet_cut=NA"
+                     << " min_degree=" << min_degree
+                     << " used_cut=" << min_degree
+                     << " improved_min_degree=0"
+                     << " total_time=" << jet_timer.elapsed()
+                     << " conversion_time=" << jet_result.conversion_time
+                     << " partition_time=" << jet_result.partition_time;
+            }
+        }
+    }
 
     if (auto_preset) {
         auto feats = autotune::computeGraphFeatures(G);

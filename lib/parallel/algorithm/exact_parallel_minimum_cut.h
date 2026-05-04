@@ -68,7 +68,7 @@ class exact_parallel_minimum_cut : public minimum_cut {
 
         std::vector<GraphPtr> graphs;
         timer t;
-        EdgeWeight mincut = G->getMinDegree();
+        EdgeWeight mincut = minimum_cut_helpers<GraphPtr>::initialUpperBound(G);
 #ifdef PARALLEL
         viecut<GraphPtr> heuristic_mc;
         mincut = heuristic_mc.perform_minimum_cut(G, true);

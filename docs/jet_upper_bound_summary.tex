@@ -1,0 +1,37 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{amsmath}
+\usepackage{enumitem}
+
+%\title{JET for Minimum Cut: Speed--Quality Summary}
+%\author{}
+%\date{\today}
+
+\begin{document}
+%\maketitle
+
+\section{Results}
+109 diverse instances (including DIMACS 10, SNAP, etc.)
+\begin{figure}[h]
+	\centering
+\includegraphics[width=0.9\linewidth]{../results/jet_plots/jet_speedup_ecdf.png}
+	\caption{ECDF of runtime speedup (baseline / JET) on the 109 matched instances.}
+	\label{fig:jet-ecdf}
+\end{figure}
+
+\begin{itemize}[leftmargin=*]
+    \item JET returns the exact same min-cut value on 46 / 109 instances (42.2\%).
+    \item JET is faster on 94 / 109 instances (86.2\%).
+    \item Median speedup (baseline / JET): 4.92x.
+    \item Geometric-mean speedup (baseline / JET): 4.05x.
+    \item 75th-percentile speedup: 8.29x.
+    \item 90th-percentile speedup: 16.73x.
+\end{itemize}
+
+Two-way outlier: on \texttt{er-fact1.5-scale22.graph}: JET is 69.24x faster
+(42.93s vs 0.62s), but returns cut 18 instead of 3.
+
+
+\end{document}

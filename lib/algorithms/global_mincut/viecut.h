@@ -95,7 +95,7 @@ class viecut : public minimum_cut {
                       << std::endl;
         };
 
-        EdgeWeight cut = G->getMinDegree();
+        EdgeWeight cut = minimum_cut_helpers<GraphPtr>::initialUpperBound(G);
         std::vector<GraphPtr> graphs;
         graphs.push_back(G);
 

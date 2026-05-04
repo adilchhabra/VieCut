@@ -11,6 +11,8 @@ OPTION(RUN_TESTS "Compile and run tests" ON)
 OPTION(USE_TCMALLOC "Replace builtin malloc with TCMalloc" ON)
 OPTION(USE_PROFILER "Use TCMalloc profiler (requires TCMalloc)" OFF)
 OPTION(USE_GUROBI "Use Gurobi for ILP Solving in multiterminal cut" OFF)
+OPTION(VIECUT_ENABLE_JET "Use extlib/Jet-Partitioner as a min-cut upper-bound preprocessor" OFF)
+OPTION(VIECUT_REQUIRE_JET_GPU "Require the linked JET/Kokkos build to include a GPU backend" OFF)
 
 if (USE_TCMALLOC)
     find_package(Tcmalloc REQUIRED)
@@ -71,6 +73,8 @@ MESSAGE(STATUS "Option: RUN_TESTS " ${RUN_TESTS})
 MESSAGE(STATUS "Option: USE_TCMALLOC " ${USE_TCMALLOC})
 MESSAGE(STATUS "Option: USE_PROFILER " ${USE_PROFILER})
 MESSAGE(STATUS "Option: USE_GUROBI " ${USE_GUROBI})
+MESSAGE(STATUS "Option: VIECUT_ENABLE_JET " ${VIECUT_ENABLE_JET})
+MESSAGE(STATUS "Option: VIECUT_REQUIRE_JET_GPU " ${VIECUT_REQUIRE_JET_GPU})
 
 MESSAGE(STATUS "GUROBI INCLUDE ${GUROBI_INCLUDE_DIR}")
 MESSAGE(STATUS "TCMALLOC INCLUDE ${Tcmalloc_INCLUDE_DIR}")
@@ -89,6 +93,69 @@ if(USE_TCMALLOC)
     include_directories(${Tcmalloc_INCLUDE_DIR})
 endif()
 
+set(JET_LIBS "")
+if(VIECUT_ENABLE_JET)
+    find_package(KokkosKernels REQUIRED)
+    set(VIECUT_JET_GPU_BACKENDS "")
+    foreach(KOKKOS_GPU_BACKEND CUDA HIP SYCL OPENMPTARGET)
+        if(Kokkos_ENABLE_${KOKKOS_GPU_BACKEND})
+            list(APPEND VIECUT_JET_GPU_BACKENDS ${KOKKOS_GPU_BACKEND})
+        endif()
+    endforeach()
+    if(VIECUT_JET_GPU_BACKENDS)
+        message(STATUS "JET/Kokkos GPU backends: ${VIECUT_JET_GPU_BACKENDS}")
+    else()
+        message(STATUS "JET/Kokkos GPU backends: none")
+    endif()
+    if(VIECUT_REQUIRE_JET_GPU AND NOT VIECUT_JET_GPU_BACKENDS)
+        message(FATAL_ERROR
+            "VIECUT_REQUIRE_JET_GPU=ON, but the Kokkos/KokkosKernels package "
+            "found by CMake has no GPU backend enabled. Rebuild JET and "
+            "Kokkos/KokkosKernels with CUDA, HIP, SYCL, or OpenMPTarget and "
+            "point Kokkos_DIR/KokkosKernels_DIR at that installation.")
+    endif()
+
+    set(VIECUT_JET_LIBRARY
+        "${CMAKE_CURRENT_SOURCE_DIR}/extlib/Jet-Partitioner/build/src/libjet.a"
+        CACHE FILEPATH "Path to the JET static library")
+    set(VIECUT_JET_INCLUDE_DIR
+        "${CMAKE_CURRENT_SOURCE_DIR}/extlib/Jet-Partitioner/header"
+        CACHE PATH "Path to JET headers")
+    set(VIECUT_JET_METIS_HINT
+        ""
+        CACHE PATH "Optional path containing METIS lib/ and include/")
+
+    if(NOT EXISTS "${VIECUT_JET_LIBRARY}")
+        message(FATAL_ERROR
+            "VIECUT_ENABLE_JET=ON but VIECUT_JET_LIBRARY does not exist: "
+            "${VIECUT_JET_LIBRARY}. Build JET first or pass "
+            "-DVIECUT_JET_LIBRARY=/path/to/libjet.a")
+    endif()
+
+    add_library(viecut_jet STATIC IMPORTED)
+    set_target_properties(viecut_jet PROPERTIES
+        IMPORTED_LOCATION "${VIECUT_JET_LIBRARY}"
+        INTERFACE_INCLUDE_DIRECTORIES "${VIECUT_JET_INCLUDE_DIR}")
+
+    if(VIECUT_JET_METIS_HINT)
+        find_library(VIECUT_JET_METIS_LIBRARY metis
+            HINTS "${VIECUT_JET_METIS_HINT}/lib" REQUIRED)
+        find_library(VIECUT_JET_GKLIB_LIBRARY GKlib
+            HINTS "${VIECUT_JET_METIS_HINT}/lib")
+    else()
+        find_library(VIECUT_JET_METIS_LIBRARY metis REQUIRED)
+        find_library(VIECUT_JET_GKLIB_LIBRARY GKlib)
+    endif()
+
+    add_definitions(-DVIECUT_ENABLE_JET)
+    include_directories(SYSTEM "${VIECUT_JET_INCLUDE_DIR}")
+    set(JET_LIBS viecut_jet Kokkos::kokkos Kokkos::kokkoskernels
+        ${VIECUT_JET_METIS_LIBRARY})
+    if(VIECUT_JET_GKLIB_LIBRARY)
+        list(APPEND JET_LIBS ${VIECUT_JET_GKLIB_LIBRARY})
+    endif()
+endif()
+
 set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -g ${OpenMP_CXX_FLAGS}")
 set (CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -lpthread")
 set (CMAKE_CXX_FLAGS_RELEASE "-O3 -march=native -DNDEBUG")
@@ -101,7 +168,7 @@ if (USE_TCMALLOC)
 endif()
 
 
-set(EXTLIBS tlx)
+set(EXTLIBS tlx ${JET_LIBS})
 
 if(USE_PROFILER)
 set(LIBS ${EXTLIBS} ${Profiler_LIBRARIES} ${GUROBI_LIBRARIES})
@@ -128,6 +195,7 @@ bal_seq(graph_class_guesser)
 bal_seq(gnp_torus)
 bal_seq(largest_cc)
 bal_seq(make_graph_weighted)
+bal_seq(noigen)
 bal_seq(temporal_largest_cc)
 
 message(STATUS "CXX Flags ${CMAKE_CXX_FLAGS}")

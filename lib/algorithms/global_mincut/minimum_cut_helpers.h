@@ -39,11 +39,25 @@ class minimum_cut_helpers {
     }
 
  public:
+    static EdgeWeight initialUpperBound(GraphPtr G) {
+        EdgeWeight bound = G->getMinDegree();
+        auto cfg = configuration::getConfig();
+        if (cfg->jet_upper_bound_available) {
+            bound = std::min(bound, cfg->initial_cut_upper_bound);
+        }
+        return bound;
+    }
+
     // set minimum cut to initial value (one minimum degree vertex)
     // - this cut will be updated later in the global_mincut
     static void setInitialCutValues(
         const std::vector<GraphPtr>& graphs) {
         if (configuration::getConfig()->save_cut) {
+            auto cfg = configuration::getConfig();
+            if (cfg->jet_upper_bound_available &&
+                cfg->initial_cut_upper_bound < graphs.back()->getMinDegree()) {
+                return;
+            }
             size_t minimum_index = minimumIndex(graphs.back());
             for (NodeID idx : graphs[0]->nodes()) {
                 if (idx == minimum_index) {
